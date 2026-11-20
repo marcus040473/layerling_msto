@@ -3546,6 +3546,22 @@ html[data-theme="dark"] .shell-openings-summary {
   border-radius: 6px;
 }
 
+/* The text on a lid's sliders or beside its bolts, a short line under its label. */
+.edge-modifier-field.lid-latch-label input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 31px;
+  margin-top: 5px;
+  padding: 0 7px;
+  color: #533d26;
+  font: inherit;
+  font-weight: 600;
+  background: white;
+  border: 1px solid #c4ad96;
+  border-radius: 6px;
+}
+
 .edge-modifier-field select {
   width: 100%;
   margin-top: 5px;
@@ -11663,6 +11679,47 @@ html[data-theme="dark"] .mesh-compare-actions .secondary {
 }
 
 .vase-neck-hint .cylinder-wrap-hint {
+  margin: 0;
+}
+
+/* The vase's use (vase, plant pot, lampshade): three tiles with a sign each, and under the body shapes a block with
+   what belongs to the use. No colours of their own: the tiles are the designer's, and the block takes the text's
+   colour, thinned, so it follows every theme. */
+.vase-purpose-tiles {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.vase-purpose-tiles button svg {
+  justify-self: center;
+  margin: 4px 0 2px;
+}
+
+.vase-use {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.vase-use-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* One's own picture or text as the pattern: the button to load a picture and the line that says what light and dark do.
+   No colours of its own; the button and the hint bring the theme's. */
+.vase-own-picture {
+  display: grid;
+  gap: 6px;
+}
+
+.vase-own-picture .cylinder-wrap-hint {
   margin: 0;
 }
 
@@ -20499,4 +20556,46 @@ html[data-theme="dark"] .layer-view-chart {
 html[data-theme="dark"] .layer-view-chart path {
   fill: rgba(143, 179, 224, 0.3);
   stroke: #8fb3e0;
+}
+
+/* Print analysis (Druckanalyse) and its layer view. */
+.layer-check-progress {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 8px;
+  align-items: center;
+}
+
+/* Findings in the mold window: each with its level, what it is and what helps. */
+.layer-check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-plain-section > strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.mold-analysis p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.mold-analysis.stale {
+  opacity: 0.6;
+}
+
+.mold-option-figure {
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.mold-vents {
+  display: grid;
+  gap: 4px;
 }

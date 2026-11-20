@@ -332,6 +332,10 @@ type WorkplaneViewportProps = {
   /** "Align faces" waiting for a click on a face of one of these bodies; `round` lights up whole round faces, `joined` the group's parts joined, whose face is lit in place of the part's. */
   mateFacePick?: { shapeIds: string[]; round?: boolean | "either"; joined?: ArrayLike<number> | null } | null;
   onMateFacePick?: (pick: LayFlatPick | null) => void;
+  /** Thread insert placement: a true world-space ring on the selected surface. */
+  threadInsertPreview?: { origin: {x:number;y:number;z:number}; normal: {x:number;y:number;z:number}; diameter:number; allowed:boolean } | null;
+  threadInsertCenter?: {point:{x:number;y:number;z:number};normal:{x:number;y:number;z:number}} | null;
+  onThreadInsertDragPick?: (pick: LayFlatPick | null) => void;
   /**
    * "Point to point" (Discussion #1491): while `picking`, a click takes a corner, a spot on an edge, the centre of a
    * round edge of one of these bodies, or a reference point; `marks` are the points already picked.
@@ -1732,6 +1736,9 @@ export function WorkplaneViewport({
   onLayFlatPick,
   mateFacePick = null,
   onMateFacePick,
+  threadInsertPreview = null,
+  threadInsertCenter = null,
+  onThreadInsertDragPick,
   matePointPick = null,
   onMatePointPick,
   paintPick = null,
@@ -1962,6 +1969,77 @@ export function WorkplaneViewport({
     setSnapMenuAt({ x, y });
   }, !pickOnly);
   const threeRef = useRef<ThreeState | null>(null);
+  // Thread insert marker is a temporary helper, never a document shape.
+  useEffect(() => {
+    const state = threeRef.current;
+    if (!state || !threadInsertPreview || !Number.isFinite(threadInsertPreview.diameter) || threadInsertPreview.diameter <= 0) return;
+    const n = new THREE.Vector3(threadInsertPreview.normal.x,threadInsertPreview.normal.y,threadInsertPreview.normal.z).normalize();
+    const center = new THREE.Vector3(threadInsertPreview.origin.x,threadInsertPreview.origin.y,threadInsertPreview.origin.z).addScaledVector(n,0.025);
+    const u = new THREE.Vector3(0,1,0);
+    if (Math.abs(n.dot(u)) > 0.95) u.set(1,0,0);
+    u.addScaledVector(n,-u.dot(n)).normalize();
+    const w = new THREE.Vector3().crossVectors(n,u).normalize();
+    const radius = threadInsertPreview.diameter/2;
+    const color = threadInsertPreview.allowed ? 0x18d66b : 0xff3333;
+    // WebGL ignores LineBasicMaterial.linewidth on most Windows drivers.
+    // Instead use annulus meshes, with a thick white halo and colour ring.
+    const annulus=(thickness:number,ringColor:number,order:number)=>{
+      const half=Math.min(thickness/2,radius*.45);
+      const geometry=new THREE.RingGeometry(Math.max(.01,radius-half),radius+half,96);
+      const material=new THREE.MeshBasicMaterial({color:ringColor,side:THREE.DoubleSide,depthTest:false,depthWrite:false});
+      const mesh=new THREE.Mesh(geometry,material);
+      mesh.position.copy(center);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),n);
+      mesh.renderOrder=order;
+      return mesh;
+    };
+    const halo=annulus(0.62,0xffffff,9998);
+    const ring=annulus(0.34,color,9999);
+    const bars = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([
+      center.clone().addScaledVector(u,-radius*.35),center.clone().addScaledVector(u,radius*.35),
+      center.clone().addScaledVector(w,-radius*.35),center.clone().addScaledVector(w,radius*.35)
+    ]),new THREE.LineBasicMaterial({color,depthTest:false,depthWrite:false}));
+    bars.renderOrder=10000;
+    state.scene.add(halo,ring,bars);
+    state.needsRender=true;
+    return () => {
+      state.scene.remove(halo,ring,bars);
+      halo.geometry.dispose();(halo.material as THREE.Material).dispose();
+      ring.geometry.dispose();(ring.material as THREE.Material).dispose();
+      bars.geometry.dispose();(bars.material as THREE.Material).dispose();
+      state.needsRender=true;
+    };
+  },[threadInsertPreview]);
+
+  // Purple face-center crosshair: a display-only helper, never included in STL.
+  useEffect(() => {
+    const state=threeRef.current;
+    if(!state || !threadInsertCenter) return;
+    const {point,normal}=threadInsertCenter;
+    const n=new THREE.Vector3(normal.x,normal.y,normal.z).normalize();
+    if(n.lengthSq()<0.5) return;
+    const pos=new THREE.Vector3(point.x,point.y,point.z).addScaledVector(n,0.06);
+    const across=new THREE.Vector3(0,1,0);
+    if(Math.abs(n.dot(across))>.95) across.set(1,0,0);
+    across.addScaledVector(n,-across.dot(n)).normalize();
+    const up=new THREE.Vector3().crossVectors(n,across).normalize();
+    const r=0.65;
+    const material=new THREE.LineBasicMaterial({color:0xaf55ff,depthTest:false,depthWrite:false});
+    const lines=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([
+      pos.clone().addScaledVector(across,-r),pos.clone().addScaledVector(across,r),
+      pos.clone().addScaledVector(up,-r),pos.clone().addScaledVector(up,r)
+    ]),material);
+    lines.renderOrder=10002;
+    const dot=new THREE.Mesh(new THREE.SphereGeometry(0.13,12,8),new THREE.MeshBasicMaterial({color:0xc18aff,depthTest:false,depthWrite:false}));
+    dot.position.copy(pos);dot.renderOrder=10003;
+    state.scene.add(lines,dot);state.needsRender=true;
+    return () => {
+      state.scene.remove(lines,dot);
+      lines.geometry.dispose();material.dispose();dot.geometry.dispose();(dot.material as THREE.Material).dispose();
+      state.needsRender=true;
+    };
+  },[threadInsertCenter]);
+
   // A 3D mouse the site may use steers this view (#1013).
   useSpaceMouse(threeRef);
   const shapesRef = useRef(shapes);
@@ -5981,6 +6059,8 @@ export function WorkplaneViewport({
     const value = parseMeasurementInput(edit.value);
     if (Number.isFinite(value)) {
       const pivot = pivotVector(rotationPivotRef.current);
+      // One change for all bodies, as for a typed size (#259), or each update would start from the shapes as they were.
+      onInteractionActiveChange?.(true);
       selectedIdsRef.current.forEach((id) => {
         const shape = shapesRef.current.find((entry) => entry.id === id);
         const rotationPatch = rotationPatchForAxis(edit.axis, value);
@@ -5992,11 +6072,12 @@ export function WorkplaneViewport({
         const delta = quaternionForShape({ ...shape, ...rotationPatch }).multiply(startQuaternion.clone().invert());
         onUpdateShape(id, { ...rotatedGeometryShapePatch(shape, delta, pivot), bakeTransform: true });
       });
+      onInteractionActiveChange?.(false);
     }
     setEditingRotation(null);
     setEditingCorner(null);
     setActiveRotationWheel(false);
-  }, [editingRotation, onUpdateShape]);
+  }, [editingRotation, onInteractionActiveChange, onUpdateShape]);
 
   // The angle box too (#486): a press outside applies the typed value before the selection can go.
   useEffect(() => {
@@ -6078,6 +6159,14 @@ export function WorkplaneViewport({
   }, [printCheckThin]);
   useEffect(() => () => {
     if (threeRef.current) syncThinWallOverlay(threeRef.current, null);
+  }, []);
+  // The mold tool's preview while its panel is open.
+  useEffect(() => {
+    const state = threeRef.current;
+    if (state) syncMoldPreviewOverlay(state, moldPreview);
+  }, [moldPreview]);
+  useEffect(() => () => {
+    if (threeRef.current) syncMoldPreviewOverlay(threeRef.current, null);
   }, []);
   const printCheckRequest = printCheckView?.request ?? 0;
   const printCheckFocusRef = useRef<PrintCheckView["focus"]>(null);
@@ -7702,6 +7791,9 @@ export function WorkplaneViewport({
   );
 
   const finishDragRef = useRef<((event: ReactPointerEvent<HTMLDivElement>) => void) | null>(null);
+  const threadInsertMoveRef = useRef(onThreadInsertDragPick);
+  threadInsertMoveRef.current = onThreadInsertDragPick;
+  const threadInsertLastMoveRef = useRef(0);
   const handlePointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       // Gehoert die Flaeche gerade der Kamera, hat hier niemand etwas zu
@@ -7845,6 +7937,14 @@ export function WorkplaneViewport({
         return;
       }
       if (mateFacePickRef.current) {
+        // With left mouse button held, drag the temporary insert circle to a new location.
+        if ((event.buttons & 1) && threadInsertMoveRef.current && threeRef.current) {
+          const now = performance.now();
+          if (now-threadInsertLastMoveRef.current >= 90) {
+            threadInsertLastMoveRef.current=now;
+            threadInsertMoveRef.current(pickMateFace(threeRef.current,event.clientX,event.clientY));
+          }
+        }
         mateFaceHoverRef.current = { x: event.clientX, y: event.clientY };
         syncLayFlatHover(threeRef.current, mateFacePickRef.current.shapeIds, resolvedThemeRef.current, event.clientX, event.clientY, mateFacePickRef.current.round, mateFacePickRef.current.joined);
         return;
@@ -8673,13 +8773,6 @@ export function WorkplaneViewport({
       syncViewCube(state, viewCubeRef.current);
     };
   }, [layerViewOpen, syncSectionClippingState]);
-  useEffect(() => {
-    const state = threeRef.current;
-    if (state) syncMoldPreviewOverlay(state, moldPreview);
-  }, [moldPreview]);
-  useEffect(() => () => {
-    if (threeRef.current) syncMoldPreviewOverlay(threeRef.current, null);
-  }, []);
   const layerViewRequest = layerView?.request ?? 0;
   useEffect(() => {
     const state = threeRef.current;
